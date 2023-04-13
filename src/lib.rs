@@ -1,13 +1,10 @@
-#![allow(dead_code)]
 use pyo3::{prelude::*};
 
-pub mod subclass;
-
-
 pub trait MakeSubClass: MakeSubClassClone + std::fmt::Debug {
-    fn add_subclass(&self, base: BaseClass) -> PyObject;
+    fn new_with_base_class(&self, base: BaseClass) -> PyObject;
 }
 
+/// this just exists to clone a boxed dyn trait
 pub trait MakeSubClassClone {
     fn clone_box(&self) -> Box<dyn MakeSubClass>;
 }
@@ -38,7 +35,7 @@ impl BaseClass {
     #[staticmethod]
     fn new() -> BaseClass {
         BaseClass { 
-            kind_dyn: Box::new(BaseClassBuilder{}) as Box<dyn MakeSubClass>
+            kind_dyn: Box::new(BaseClassBuilder{}) as Box<dyn MakeSubClass>,
         }
     }
 
@@ -48,7 +45,7 @@ impl BaseClass {
             kind_dyn: builder_dyn.clone(),
         };
 
-        builder_dyn.add_subclass(base)
+        builder_dyn.new_with_base_class(base)
     }
 }
 
@@ -57,7 +54,7 @@ struct BaseClassBuilder;
 
 
 impl MakeSubClass for BaseClassBuilder {
-    fn add_subclass(&self, base: BaseClass) -> PyObject {
+    fn new_with_base_class(&self, base: BaseClass) -> PyObject {
         eprintln!("adding subclass for Base");
         Python::with_gil(|py| {
             Py::new(py, base).unwrap().to_object(py)
@@ -65,6 +62,37 @@ impl MakeSubClass for BaseClassBuilder {
     }
 }
 
+mod subclass {
+    use pyo3::prelude::*;
+
+    use super::{BaseClass, MakeSubClass};
+
+    #[pyclass(extends=BaseClass, subclass)]
+    pub struct SubClass {}
+
+    #[derive(Clone, Debug)]
+    pub struct SubClassBuilder;
+
+    impl MakeSubClass for SubClassBuilder {
+        fn new_with_base_class(&self, base: BaseClass) -> PyObject {
+            eprintln!("adding subclass for SubClass");
+            let sub = SubClass{};
+            let instance = PyClassInitializer::from(base).add_subclass(sub);
+            Python::with_gil(|py| {
+                Py::new(py, instance).unwrap().to_object(py)
+            })
+        }
+    }
+
+    #[pyfunction]
+    pub fn make_sub() -> PyResult<Py<SubClass>> {
+        Python::with_gil(|py| {
+            Py::new(py, PyClassInitializer::from(BaseClass{
+                kind_dyn: Box::new(SubClassBuilder{}) as Box<dyn MakeSubClass>,
+            }).add_subclass(SubClass { }))
+        })
+    }
+}
 
 
 
