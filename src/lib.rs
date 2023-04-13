@@ -18,18 +18,19 @@ struct BaseClass {
 #[pymethods]
 impl BaseClass {
     fn make_another(&self) -> PyObject {
+        let base = PyClassInitializer::from(BaseClass {kind: self.kind.clone()});
         Python::with_gil(|py| {
             match self.kind {
                 BuilderKind::Base => {
                     Py::new(
                         py, 
-                        PyClassInitializer::from(BaseClass { kind: BuilderKind::Base })
+                        base
                     ).unwrap().to_object(py)
                 },
                 BuilderKind::Sub => {
                     Py::new(
                         py, 
-                        PyClassInitializer::from(BaseClass { kind: BuilderKind::Sub }).add_subclass(SubClass{})
+                        base.add_subclass(SubClass{})
                     ).unwrap().to_object(py)
                 },
             }
@@ -61,36 +62,10 @@ impl SelfBuilder for BaseClass {
     }
 }
 
-// trait Builder {
-//     type ToBuild;
-//     fn build(&self) -> Self::ToBuild;
-// }
-
-// impl Builder for BaseClass {
-//     type ToBuild = BaseClass;
-
-//     fn build(&self) -> Self::ToBuild {
-//         BaseClass {
-//             base: "string".to_owned(),
-//         }
-//     }
-// }
-
-// impl Builder for SubClass {
-//     type ToBuild = SubClass;
-
-//     fn build(&self) -> Self::ToBuild {
-//         SubClass {
-
-//         }
-//     }
-// }
-
 #[pyfunction]
 fn make_sub() -> PyResult<Py<SubClass>> {
     Python::with_gil(|py| {
         Py::new(py, PyClassInitializer::from(BaseClass{
-            base: "One".to_owned(),
             kind: BuilderKind::Sub,
         }).add_subclass(SubClass { }))
     })
