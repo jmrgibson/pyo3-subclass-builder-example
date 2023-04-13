@@ -1,81 +1,89 @@
 #![allow(dead_code)]
-use pyo3::prelude::*;
+use pyo3::{prelude::*};
+
+pub mod subclass;
 
 
-#[derive(Clone, Debug)]
-pub enum BuilderKind {
-    Base,
-    Sub,
+pub trait MakeSubClass: MakeSubClassClone + std::fmt::Debug {
+    fn add_subclass(&self, base: BaseClass) -> PyObject;
 }
 
-#[derive(Clone, Debug)]
-#[pyclass(subclass)]
-struct BaseClass {
-    kind: BuilderKind,
+pub trait MakeSubClassClone {
+    fn clone_box(&self) -> Box<dyn MakeSubClass>;
 }
 
+impl<T> MakeSubClassClone for T
+where
+    T: MakeSubClass + Clone + 'static,
+{
+    fn clone_box(&self) -> Box<dyn MakeSubClass> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn MakeSubClass> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
+
+
+#[pyclass(subclass, unsendable)]
+pub struct BaseClass {
+    kind_dyn: Box<dyn MakeSubClass>,
+}
 
 #[pymethods]
 impl BaseClass {
-    fn make_another(&self) -> PyObject {
-        let base = PyClassInitializer::from(BaseClass {kind: self.kind.clone()});
+    #[staticmethod]
+    fn new() -> BaseClass {
+        BaseClass { 
+            kind_dyn: Box::new(BaseClassBuilder{}) as Box<dyn MakeSubClass>
+        }
+    }
+
+    fn clone_instance(&self) -> PyObject {
+        let builder_dyn = self.kind_dyn.clone();
+        let base = BaseClass {
+            kind_dyn: builder_dyn.clone(),
+        };
+
+        builder_dyn.add_subclass(base)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct BaseClassBuilder;
+
+
+impl MakeSubClass for BaseClassBuilder {
+    fn add_subclass(&self, base: BaseClass) -> PyObject {
+        eprintln!("adding subclass for Base");
         Python::with_gil(|py| {
-            match self.kind {
-                BuilderKind::Base => {
-                    Py::new(
-                        py, 
-                        base
-                    ).unwrap().to_object(py)
-                },
-                BuilderKind::Sub => {
-                    Py::new(
-                        py, 
-                        base.add_subclass(SubClass{})
-                    ).unwrap().to_object(py)
-                },
-            }
+            Py::new(py, base).unwrap().to_object(py)
         })
     }
 }
 
-#[pyclass(extends=BaseClass, subclass)]
-#[derive(Clone, Debug)]
-struct SubClass {
 
-}
 
-trait SelfBuilder {
-    fn build(&self) -> Self;
-}
 
-impl SelfBuilder for SubClass {
-    fn build(&self) -> Self {
-        SubClass {  }
-    }
-}
-
-impl SelfBuilder for BaseClass {
-    fn build(&self) -> Self {
-        BaseClass {
-            kind: BuilderKind::Base,
-        }
-    }
-}
 
 #[pyfunction]
-fn make_sub() -> PyResult<Py<SubClass>> {
+fn make_base() -> PyResult<Py<BaseClass>> {
     Python::with_gil(|py| {
         Py::new(py, PyClassInitializer::from(BaseClass{
-            kind: BuilderKind::Sub,
-        }).add_subclass(SubClass { }))
+            kind_dyn: Box::new(BaseClassBuilder{}) as Box<dyn MakeSubClass>,
+        }))
     })
 }
 
 /// A Python module implemented in Rust.
 #[pymodule]
 fn pyo3_subclass(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(make_sub, m)?)?;
+    m.add_function(wrap_pyfunction!(make_base, m)?)?;
+    m.add_function(wrap_pyfunction!(subclass::make_sub, m)?)?;
     m.add_class::<BaseClass>()?;
-    m.add_class::<SubClass>()?;
+    m.add_class::<subclass::SubClass>()?;
     Ok(())
 }
